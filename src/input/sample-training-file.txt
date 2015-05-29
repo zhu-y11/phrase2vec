@@ -1,0 +1,12 @@
+OOV-test ||| 1
+OOV-test1 OOV-test2 ||| 1
+aftermath of the boxer rebellion ||| 1
+university ||| 1
+begin ||| 2
+the school is sometimes even called the " mit of china " ||| 3
+university rankings place tsinghua ||| 4
+12 colleges and 48 departments ||| 1
+new hampshire ||| 2 
+institutions tending to specialize ||| 2
+many university students ||| 2
+tsinghua amongst the best universities ||| 3
