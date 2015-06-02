@@ -480,7 +480,7 @@ class RecursiveAutoencoder_la(object):
             raise TypeError(msg)
 
 def Sim( p, p_o ):
-    print dot(p.T,p_o)
+    #print dot(p.T,p_o)
     return dot( p.T, p_o )[0][0]
 
 def prepare_data(word_vectors=None, datafile=None):
@@ -587,14 +587,12 @@ if __name__ == '__main__':
             src_yla = src_yla_unnormalized / LA.norm( src_yla_unnormalized, axis=0 )
             trg_yla_unnormalized = tanh( dot( trg_rae_la.Wla, trg_root_node.p ) + trg_rae_la.bla )
             trg_yla = trg_yla_unnormalized / LA.norm( trg_yla_unnormalized, axis=0 )
-           # Calculate the similarity 
-            sim = ( Sim( src_yla, trg_root_node.p ) + Sim( trg_yla, src_root_node.p ) ) / 2
 
             writer.write( src_phrase )
             writer.write(' ||| ')
             writer.write( trg_phrase )
             writer.write(' ||| ')
-            writer.write( str( sim ) )
+            writer.write( str( Sim( src_yla, trg_root_node.p ) ) + ',' + str( Sim( trg_yla, src_root_node.p ) ) )
             writer.write('\n')
        
             src_total_cost += src_rec_error

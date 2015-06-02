@@ -15,8 +15,10 @@ if __name__ == '__main__':
         linevec = line.strip().split( ' ||| ' )
         src_word = linevec[0]
         trg_word = linevec[1]
-        score = float( linevec[2] )
-        if score < threshold:
+        scorevec = map( float, linevec[2].strip().split( ',' ) )
+        score1 = scorevec[0]
+        score2 = scorevec[1]
+        if score1 < threshold or score2 < threshold:
             continue
         filtered_file.write( ' ||| '.join( linevec ) )
         filtered_file.write( '\n' )
