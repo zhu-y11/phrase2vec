@@ -480,8 +480,7 @@ class RecursiveAutoencoder_la(object):
             raise TypeError(msg)
 
 def Sim( p, p_o ):
-    #print dot(p.T,p_o)
-    return dot( p.T, p_o )[0][0]
+    return dot( p, p_o )
 
 def prepare_data(word_vectors=None, datafile=None):
     '''Prepare training data
@@ -524,6 +523,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('source_instances', help='input file, each line is a phrase')
     parser.add_argument('target_instances', help='input file, each line is a phrase')
+    parser.add_argument('phrase_data', help='input file, each line is a phrase')
     parser.add_argument('source_word_vector', help='source word vector file')
     parser.add_argument('target_word_vector', help='target word vector file')
     parser.add_argument('theta', help='RAE parameter file (pickled)')
@@ -536,6 +536,7 @@ if __name__ == '__main__':
     trg_word_vector_file = options.target_word_vector
     theta_file = options.theta
     output_file = options.output
+    phrase_data_file = options.phrase_data
   
     print >> stderr, 'load word vectors...'
     src_word_vectors = WordVectors.load_vectors(src_word_vector_file)
@@ -568,11 +569,13 @@ if __name__ == '__main__':
 
     src_file = open( src_instances_file, 'r' )
     trg_file = open( trg_instances_file, 'r' )
+    phrase_data = open( phrase_data_file, 'r' )
 
     with Writer(output_file) as writer:     
         for i in xrange( len( src_instances ) ):
             src_phrase = src_file.readline().strip().split(' ||| ')[0]
             trg_phrase = trg_file.readline().strip().split(' ||| ')[0]
+            data = phrase_data.readline().strip()
             src_instance = src_instances[i]
             trg_instance = trg_instances[i]
             src_word_embedded = src_word_vectors[src_instance.words]
@@ -585,14 +588,17 @@ if __name__ == '__main__':
             # Calculate ps* and pt*
             src_yla_unnormalized = tanh( dot( src_rae_la.Wla, src_root_node.p ) + src_rae_la.bla )
             src_yla = src_yla_unnormalized / LA.norm( src_yla_unnormalized, axis=0 )
+            src_yla = src_yla.T[0]
             trg_yla_unnormalized = tanh( dot( trg_rae_la.Wla, trg_root_node.p ) + trg_rae_la.bla )
             trg_yla = trg_yla_unnormalized / LA.norm( trg_yla_unnormalized, axis=0 )
+            trg_yla = trg_yla.T[0]
 
             writer.write( src_phrase )
             writer.write(' ||| ')
             writer.write( trg_phrase )
             writer.write(' ||| ')
-            writer.write( str( Sim( src_yla, trg_root_node.p ) ) + ',' + str( Sim( trg_yla, src_root_node.p ) ) )
+            writer.write( data + ' ' )
+            writer.write( str( Sim( src_yla, trg_vec ) ) + ',' + str( Sim( trg_yla, src_vec ) ) )
             writer.write('\n')
        
             src_total_cost += src_rec_error

@@ -27,7 +27,7 @@ lambda_reg_L=1e-2
 alpha=0.15
 lambda_reg_rec=1e-3
 lambda_reg_sem=1e-3
-maxiter=200
+maxiter=60
 maxiter_la=20
 threshold=0.2
 
