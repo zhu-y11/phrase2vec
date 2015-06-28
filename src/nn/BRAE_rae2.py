@@ -47,7 +47,7 @@ class LeafNode(object):
 
 class RecursiveAutoencoder_la(object):
   
-    def __init__( self, Wi1, Wi2, bi, Wo1, Wo2, bo1, bo2, L, Wla, bla,
+    def __init__( self, Wi1, Wi2, bi, Wo1, Wo2, bo1, bo2, Wla, bla,
                f=tanh, f_norm1_prime=tanh_norm1_prime ):
         '''Initialize the weight matrices and set the nonlinear function
     
@@ -69,9 +69,7 @@ class RecursiveAutoencoder_la(object):
         self.Wo2 = Wo2
         self.bo1 = bo1
         self.bo2 = bo2
-
-        self.L = L
-    
+ 
         self.Wla = Wla
         self.bla = bla
 
@@ -89,11 +87,7 @@ class RecursiveAutoencoder_la(object):
         theta: parameter vector
         embsize: dimension of word embedding vector
         '''
-
-        offset = 5 * embsize * embsize + 4 * embsize
-        num_word = (int)( ( theta.size - offset) / embsize)
-
-        assert(theta.size == cls.compute_parameter_num_la(embsize,num_word))
+        assert(theta.size == cls.compute_parameter_num_la(embsize))
         offset = 0
         sz = embsize * embsize
         Wi1 = theta[offset:offset+sz].reshape(embsize, embsize)
@@ -116,9 +110,6 @@ class RecursiveAutoencoder_la(object):
     
         bo2 = theta[offset:offset+embsize].reshape(embsize, 1)
         offset += embsize
-
-        L = theta[offset:offset+embsize*num_word].reshape(embsize, num_word)
-        offset += embsize*num_word
  
         Wla = theta[offset:offset + sz].reshape( embsize, embsize )
         offset += sz
@@ -126,10 +117,10 @@ class RecursiveAutoencoder_la(object):
         bla = theta[offset:offset + embsize].reshape( embsize, 1 )
         offset += embsize
     
-        return RecursiveAutoencoder_la( Wi1, Wi2, bi, Wo1, Wo2, bo1, bo2, L, Wla, bla )
+        return RecursiveAutoencoder_la( Wi1, Wi2, bi, Wo1, Wo2, bo1, bo2, Wla, bla )
         
     @classmethod
-    def compute_parameter_num_la(cls, embsize, num_word):
+    def compute_parameter_num_la(cls, embsize):
         '''Compute the parameter number of a recursive autoencoder
     
         Args:
@@ -147,7 +138,6 @@ class RecursiveAutoencoder_la(object):
         sz += embsize # bo2
         sz += embsize*embsize # Wla
         sz += embsize # bla
-        sz += embsize*num_word #L
         return sz
       
     def get_weights_square(self):
@@ -333,8 +323,6 @@ class RecursiveAutoencoder_la(object):
             self.gradbo1 = zeros_like(rae.bo1)
             self.gradbo2 = zeros_like(rae.bo2)
             
-            self.gradL = zeros_like(rae.L)
-
             self.gradWla = zeros_like( rae.Wla )
             self.gradbla = zeros_like( rae.bla )
 
@@ -349,7 +337,6 @@ class RecursiveAutoencoder_la(object):
             vectors.append(self.gradWo2.reshape(self.gradWo2.size, 1))
             vectors.append(self.gradbo1)
             vectors.append(self.gradbo2)
-            vectors.append(self.gradL.reshape(self.gradL.size,1))
             vectors.append(self.gradWla.reshape(self.gradWla.size, 1))
             vectors.append(self.gradbla)
             return concatenate(vectors)[:, 0]
@@ -472,9 +459,15 @@ class RecursiveAutoencoder_la(object):
                         yla_unnormalized, ylapla, bad_ylapla, optimal, delta_parent_out_right )
 
         elif isinstance(node, LeafNode):
-            bvec = zeros( ( total_grad.gradL.shape[1], 1 ) )
-            bvec[node.index] = 1
-            total_grad.gradL += dot( delta_parent_out, bvec.T ) * rec
+            if top:
+                if not optimal:
+                    jcobla = self.f_norm1_prime( yla_unnormalized )
+                    delta_outla = dot( jcobla, ylapla )
+                    bad_delta_outla = dot( jcobla, bad_ylapla )
+                    total_grad.gradWla += (dot(delta_outla,node.p.T) - dot(bad_delta_outla,node.p.T))\
+                                * sem
+                    total_grad.gradbla += ( delta_outla - bad_delta_outla ) * sem
+            return
         else:
             msg = 'node should be an instance of InternalNode or LeafNode';
             raise TypeError(msg)
@@ -546,13 +539,11 @@ if __name__ == '__main__':
   
     print >> stderr, 'load RAE parameters...'
     theta = unpickle(theta_file)
-    src_offset = 5 * src_embsize * src_embsize + 4 * src_embsize + src_embsize*len( src_word_vectors )
+    src_offset = 5 * src_embsize * src_embsize + 4 * src_embsize 
     src_theta = theta[0:src_offset]
     trg_theta = theta[src_offset:]
     src_rae_la = RecursiveAutoencoder_la.build_la( src_theta, src_embsize )
     trg_rae_la = RecursiveAutoencoder_la.build_la( trg_theta, trg_embsize )
-    src_word_vectors._vectors = src_rae_la.L
-    trg_word_vectors._vectors = trg_rae_la.L
     
     src_total_cost = 0
     trg_total_cost = 0
@@ -582,8 +573,12 @@ if __name__ == '__main__':
             trg_word_embedded = trg_word_vectors[trg_instance.words]
             src_root_node, src_rec_error = src_rae_la.forward_la( src_word_embedded, src_instance )
             trg_root_node, trg_rec_error = trg_rae_la.forward_la( trg_word_embedded, trg_instance )
-            src_vec = src_root_node.p.T[0] # convert n*1 vector to common vector
-            trg_vec = trg_root_node.p.T[0] # convert n*1 vector to common vector
+            src_vec = src_root_node.p # convert n*1 vector to common vector
+            src_vec = src_vec / LA.norm( src_vec, axis = 0 )
+            src_vec = src_vec.T[0]
+            trg_vec = trg_root_node.p # convert n*1 vector to common vector
+            trg_vec = trg_vec / LA.norm( trg_vec, axis = 0 )
+            trg_vec = trg_vec.T[0] 
 
             # Calculate ps* and pt*
             src_yla_unnormalized = tanh( dot( src_rae_la.Wla, src_root_node.p ) + src_rae_la.bla )
@@ -613,3 +608,4 @@ if __name__ == '__main__':
     print 'average target reconstruction error per instance: %20.8f' % (trg_total_cost / trg_total_instance_num)
     print 'average target reconstruction error per node:     %20.8f' % (trg_total_cost / trg_total_internal_node_num)
     print '='*63
+

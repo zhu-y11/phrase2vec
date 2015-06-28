@@ -12,6 +12,7 @@ from sys import stderr
 
 from numpy import arange, dot, zeros, zeros_like, tanh, concatenate
 from numpy import linalg as LA
+import numpy as np
 
 from functions import tanh_norm1_prime, sum_along_column
 from vec.wordvector import WordVectors
@@ -48,7 +49,7 @@ class LeafNode(object):
 
 class RecursiveAutoencoder(object):
   
-    def __init__(self, Wi1, Wi2, bi, Wo1, Wo2, bo1, bo2, L, 
+    def __init__(self, Wi1, Wi2, bi, Wo1, Wo2, bo1, bo2, L,
                    f=tanh, f_norm1_prime=tanh_norm1_prime):
         '''Initialize the weight matrices and set the nonlinear function
     
@@ -116,7 +117,7 @@ class RecursiveAutoencoder(object):
         
         L = theta_L.reshape( embsize, num_word )
         
-        return RecursiveAutoencoder( Wi1, Wi2, bi, Wo1, Wo2, bo1, bo2, L )
+        return RecursiveAutoencoder( Wi1, Wi2, bi, Wo1, Wo2, bo1, bo2 , L )
  
     @classmethod
     def compute_parameter_num( cls, embsize, num_word ):
@@ -162,7 +163,7 @@ class RecursiveAutoencoder(object):
         Args:
         words_embedded: word embedding vectors (column vectors)
       
-        Returns:
+       Returns:
         value1: root of the tree, an instance of InternalNode 
         value2: reconstruction_error
         '''
@@ -385,7 +386,7 @@ class RecursiveAutoencoder(object):
         None
         '''
         if isinstance(node, InternalNode):
-        # reconstruction layer
+            # reconstruction layer
             jcob1 = self.f_norm1_prime(node.y1_unnormalized)
             delta_out1 = dot(jcob1, node.y1_minus_c1)
 
@@ -419,3 +420,115 @@ class RecursiveAutoencoder(object):
         else:
             msg = 'node should be an instance of InternalNode or LeafNode';
             raise TypeError(msg)
+
+def Sim( p, p_o ):
+    return dot( p, p_o )
+
+def prepare_data(word_vectors=None, datafile=None):
+    '''Prepare training data
+    Args:
+        word_vectors: an instance of vec.wordvector
+        datafile: location of data file
+    
+    Return:
+        instances: a list of Instance
+        word_vectors: word_vectors
+        total_internal_node: total number of internal nodes
+    '''
+    
+    # load raw data
+    with Reader(datafile) as datafile:
+        instance_strs = [line for line in datafile]
+      
+    instances, total_internal_node = load_instances(instance_strs, word_vectors)
+    return instances, word_vectors, total_internal_node    
+
+def load_instances(instance_strs, word_vectors):
+    '''Load training examples
+  
+    Args:
+        instance_strs: each string is a training example
+        word_vectors: an instance of vec.wordvector
+    
+    Return:
+        instances: a list of Instance
+    '''
+    instances = [Instance.parse_from_str(i, word_vectors) for i in instance_strs]
+    total_internal_node = 0
+    for instance in instances:
+        # 对于一个短语有n个单词，则经过n-1次组合后形成唯一的短语向量，故中间节点共有n-1个
+        total_internal_node += (len(instance.words)-1) * instance.freq
+    return instances, total_internal_node
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('instances', help='input file, each line is a phrase')
+    parser.add_argument('word_vector', help='word vector file')
+    parser.add_argument('theta', help='RAE parameter file (pickled)')
+    parser.add_argument('output', help='output file')
+    options = parser.parse_args()
+
+    instances_file = options.instances
+    word_vector_file = options.word_vector
+    theta_file = options.theta
+    output_file = options.output
+  
+    print >> stderr, 'load word vectors...'
+    word_vectors = WordVectors.load_vectors(word_vector_file)
+    embsize = word_vectors.embsize()
+  
+    print >> stderr, 'load RAE parameters...'
+    theta = unpickle(theta_file)
+    rae = RecursiveAutoencoder.build( theta, embsize )
+    #word_vectors._vectors = rae.L
+    
+    total_cost = 0
+  
+    print '='*63
+    print '%20s %20s %20s' % ('all', 'avg/node', 'internal node')
+    print '-'*63
+  
+    instances, _, total_internal_node_num = prepare_data( word_vectors, instances_file )
+    
+    total_instance_num = len( instances )
+
+    f = open( instances_file, 'r' )
+
+    with Writer(output_file) as writer: 
+        for i in xrange( len( instances ) ):
+            phrase = f.readline().strip().split(' ||| ')[0]
+            instance = instances[i]
+            word_embedded = word_vectors[instance.words]
+            root_node, rec_error = rae.forward( word_embedded, instance )
+            vec = root_node.p
+            vec = vec / LA.norm(vec, axis=0)
+            vec = vec.T[0]
+                       
+            if i == 0:
+                ori_phrase = phrase
+                ori_vec = vec
+
+            writer.write( phrase )
+            writer.write(' |||')
+            '''
+            for num in vec:
+                writer.write( ' ' + str( num )  )
+            #writer.write( ori_phrase )
+            #writer.write(' ||| ')
+            #writer.write( str( Sim( vec, ori_vec ) ) )
+            writer.write('\n')
+            '''
+            writer.write( ori_phrase )
+            writer.write(' ||| ')
+            writer.write( str( Sim( vec, ori_vec ) ) )
+            writer.write('\n')
+
+            total_cost += rec_error
+
+    f.close()
+
+    print '-'*63    
+    print 'average reconstruction error per instance: %20.8f' % (total_cost / total_instance_num)
+    print 'average reconstruction error per node:     %20.8f' % (total_cost / total_internal_node_num)
+    print '='*63
+

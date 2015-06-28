@@ -139,7 +139,7 @@ def process( rae, word_vectors, instances ):
         words_embedded = word_vectors[instance.words]
         #print instance.words, words_embedded.shape,word_vectors.shape
         # 前向传播，计算错误率
-        root_node, rec_error = rae.forward( words_embedded, instance )
+        root_node, rec_error = rae.forward( words_embedded , instance )
         # 反向传播计算梯度
         rae.backward( root_node, gradients, freq= instance.freq )
         total_rec_error += rec_error * instance.freq
@@ -172,6 +172,7 @@ def init_theta( embsize, word_vectors, _seed = None ):
     parameters.append(zeros(embsize))
 
     # L
+    print word_vectors._vectors.shape
     parameters.append( word_vectors._vectors.reshape( embsize * len( word_vectors ) ) )
 
     if _seed != None:  

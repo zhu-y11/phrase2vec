@@ -65,7 +65,7 @@ def compute_cost_and_grad_la( theta,
         total_cost: the value of the objective function at theta
         total_grad: the gradients of the objective function at theta
     ''' 
-    src_offset_la = 5 * src_embsize * src_embsize + 4 * src_embsize + src_embsize * len(src_word_vectors)
+    src_offset_la = 5 * src_embsize * src_embsize + 4 * src_embsize #+ src_embsize * len(src_word_vectors)
 
     if rank == 0:
         #send working signal
@@ -79,9 +79,6 @@ def compute_cost_and_grad_la( theta,
     
         src_rae_la = RecursiveAutoencoder_la.build_la( src_theta, src_embsize ) 
         trg_rae_la = RecursiveAutoencoder_la.build_la( trg_theta, trg_embsize ) 
-            
-        src_word_vectors._vectors = src_rae_la.L
-        trg_word_vectors._vectors = trg_rae_la.L
 
         src_rec_error, src_sem_error, src_gradient_vec,\
         trg_rec_error, trg_sem_error, trg_gradient_vec = \
@@ -100,18 +97,14 @@ def compute_cost_and_grad_la( theta,
         src_reg_rec = src_rae_la.get_weights_square()
         trg_reg_rec = trg_rae_la.get_weights_square() 
         src_reg_sem = ( src_rae_la.Wla**2 ).sum()
-        src_reg_L = ( src_rae_la.L**2 ).sum()
         trg_reg_sem = ( trg_rae_la.Wla**2 ).sum()
-        trg_reg_L = ( trg_rae_la.L**2 ).sum()
 
         #计算总误差,算上regularizer
         src_total_cost = alpha * ( src_total_rec_error + lambda_reg_rec/2 * src_reg_rec) +\
-        ( 1 - alpha ) *( src_total_sem_error + lambda_reg_sem/2 * src_reg_sem ) +\
-        lambda_reg_L/2 * src_reg_L
+        ( 1 - alpha ) *( src_total_sem_error + lambda_reg_sem/2 * src_reg_sem ) 
 
         trg_total_cost = alpha * ( trg_total_rec_error + lambda_reg_rec/2 * trg_reg_rec ) +\
-        ( 1 - alpha ) *( trg_total_sem_error + lambda_reg_sem/2 * trg_reg_sem ) +\
-        lambda_reg_L/2 * trg_reg_L
+        ( 1 - alpha ) *( trg_total_sem_error + lambda_reg_sem/2 * trg_reg_sem ) 
 
         src_total_grad = zeros_like(src_gradient_vec)
         trg_total_grad = zeros_like(trg_gradient_vec)
@@ -128,7 +121,6 @@ def compute_cost_and_grad_la( theta,
         src_reg_grad.gradWo1 += lambda_reg_rec * src_rae_la.Wo1 * alpha
         src_reg_grad.gradWo2 += lambda_reg_rec * src_rae_la.Wo2 * alpha
         src_reg_grad.gradWla += lambda_reg_sem * src_rae_la.Wla * ( 1- alpha )
-        src_reg_grad.gradL += lambda_reg_L * src_rae_la.L
 
         trg_reg_grad = trg_rae_la.get_zero_gradients_la()
         trg_reg_grad.gradWi1 += lambda_reg_rec * trg_rae_la.Wi1 * alpha
@@ -136,14 +128,13 @@ def compute_cost_and_grad_la( theta,
         trg_reg_grad.gradWo1 += lambda_reg_rec * trg_rae_la.Wo1 * alpha
         trg_reg_grad.gradWo2 += lambda_reg_rec * trg_rae_la.Wo2 * alpha
         trg_reg_grad.gradWla += lambda_reg_sem * trg_rae_la.Wla * ( 1 - alpha ) 
-        trg_reg_grad.gradL += lambda_reg_L * trg_rae_la.L
 
         src_total_grad /= src_total_internal_node
         src_total_grad += src_reg_grad.to_row_vector_la()
         trg_total_grad /= trg_total_internal_node
         trg_total_grad += trg_reg_grad.to_row_vector_la()
 
-        return ( src_total_cost + trg_total_cost ), concatenate( [src_total_grad, trg_total_grad] )
+        return ( trg_total_cost + src_total_cost  ), concatenate( [src_total_grad, trg_total_grad] )
     else:
         while True:
         # receive signal
@@ -163,9 +154,6 @@ def compute_cost_and_grad_la( theta,
             src_rae_la = RecursiveAutoencoder_la.build_la( src_theta, src_embsize ) 
             trg_rae_la = RecursiveAutoencoder_la.build_la( trg_theta, trg_embsize ) 
             
-            src_word_vectors._vectors = src_rae_la.L
-            trg_word_vectors._vectors = trg_rae_la.L
-
             src_rec_error, src_sem_error, src_gradient_vec,\
             trg_rec_error, trg_sem_error, trg_gradient_vec = \
                                     process_la( src_rae_la, trg_rae_la, alpha, 
@@ -228,15 +216,16 @@ def process_la( src_rae_la, trg_rae_la, alpha,
 
         bad_src_ylapla = src_yla - bad_trg_root.p
         bad_src_sem_error = 0.5 * sum_along_column( bad_src_ylapla**2 )[0] 
-        src_sem_margin = (src_sem_error-bad_src_sem_error+1)*src_instance.freq
-        
+        src_sem_margin = ( src_sem_error - bad_src_sem_error + 1 ) * src_instance.freq
+
         src_sem_margin = max( 0.0, src_sem_margin )
+        
         if src_sem_margin == 0.0:
             soptimal = True
         else:
             soptimal = False
-        
-        #soptimal = False 
+
+        #soptimal = False
         src_total_sem_error += src_sem_margin
 
         # Target side
@@ -248,19 +237,19 @@ def process_la( src_rae_la, trg_rae_la, alpha,
         bad_trg_ylapla = trg_yla - bad_src_root.p
         bad_trg_sem_error = 0.5 * sum_along_column( bad_trg_ylapla**2 )[0] 
         trg_sem_margin = (trg_sem_error-bad_trg_sem_error+1)*trg_instance.freq
-
+         
         trg_sem_margin = max( 0.0, trg_sem_margin )
         if trg_sem_margin == 0.0:
             toptimal = True
         else:
             toptimal = False
-
-        #toptimal = False
+         
+        toptimal = False
         trg_total_sem_error += trg_sem_margin 
 
         # 反向传播计算梯度
         src_rae_la.backward_la( src_root_node, src_gradients_la, rec_s, sem_s, 
-                src_yla_unnormalized, src_ylapla, bad_src_ylapla, soptimal )
+                src_yla_unnormalized, src_ylapla, bad_src_ylapla , soptimal )
         trg_rae_la.backward_la( trg_root_node, trg_gradients_la, rec_t, sem_t, 
                 trg_yla_unnormalized, trg_ylapla, bad_trg_ylapla, toptimal )
 
@@ -272,7 +261,7 @@ def init_theta_la( theta, src_embsize, trg_embsize, src_word_vectors, trg_word_v
         ori_state = get_state()
         seed(_seed)
     
-    src_offset = 4 * src_embsize * src_embsize + 3 * src_embsize + src_embsize * len( src_word_vectors )
+    src_offset = 4 * src_embsize * src_embsize + 3 * src_embsize 
     src_theta = theta[0:src_offset] 
     trg_theta = theta[src_offset:]
 
@@ -465,7 +454,7 @@ if __name__ == '__main__':
                       help='save theta0 or not, for dubegging purpose')
     parser.add_argument('--checking-grad', action='store_true', 
                       help='checking gradients or not, for dubegging purpose')
-    parser.add_argument('-ml', '--maxiter_la', type=int, default=20,
+    parser.add_argument('-ml', '--maxiter_la', type=int, default=25,
                       help='max iteration number for supervised learning')
     parser.add_argument('-e', '--every', type=int, default=0,
                       help='dump parameters every --every iterations',)
@@ -606,9 +595,7 @@ if __name__ == '__main__':
         src_embsize = src_word_vectors.embsize()
         trg_embsize = trg_word_vectors.embsize()
         param_size = src_embsize*src_embsize*5 + src_embsize*4 +\
-                  trg_embsize*trg_embsize*5 + trg_embsize*4 +\
-                  src_embsize*len( src_word_vectors ) +\
-                  trg_embsize*len( trg_word_vectors )
+                  trg_embsize*trg_embsize*5 + trg_embsize*4
 
         theta = zeros((param_size, 1))    
         compute_cost_and_grad_la( theta, 

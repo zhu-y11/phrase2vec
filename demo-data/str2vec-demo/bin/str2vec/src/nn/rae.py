@@ -819,16 +819,55 @@ class RecursiveAutoencoder_la(object):
             msg = 'node should be an instance of InternalNode or LeafNode';
             raise TypeError(msg)
 
+def Sim( p, p_o ):
+    return dot( p, p_o )
+
+def prepare_data(word_vectors=None, datafile=None):
+    '''Prepare training data
+    Args:
+        word_vectors: an instance of vec.wordvector
+        datafile: location of data file
+    
+    Return:
+        instances: a list of Instance
+        word_vectors: word_vectors
+        total_internal_node: total number of internal nodes
+    '''
+    
+    # load raw data
+    with Reader(datafile) as datafile:
+        instance_strs = [line for line in datafile]
+      
+    instances, total_internal_node = load_instances(instance_strs, word_vectors)
+    return instances, word_vectors, total_internal_node    
+
+def load_instances(instance_strs, word_vectors):
+    '''Load training examples
+  
+    Args:
+        instance_strs: each string is a training example
+        word_vectors: an instance of vec.wordvector
+    
+    Return:
+        instances: a list of Instance
+    '''
+    instances = [Instance.parse_from_str(i, word_vectors) for i in instance_strs]
+    total_internal_node = 0
+    for instance in instances:
+        # 对于一个短语有n个单词，则经过n-1次组合后形成唯一的短语向量，故中间节点共有n-1个
+        total_internal_node += (len(instance.words)-1) * instance.freq
+    return instances, total_internal_node
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('phrases', help='input file, each line is a phrase')
-    parser.add_argument('word_vector_file', help='word vector file')
+    parser.add_argument('instances', help='input file, each line is a phrase')
+    parser.add_argument('word_vector', help='word vector file')
     parser.add_argument('theta', help='RAE parameter file (pickled)')
     parser.add_argument('output', help='output file')
     options = parser.parse_args()
-  
-    phrases_file = options.phrases
-    word_vector_file = options.word_vector_file
+
+    instances_file = options.instances
+    word_vector_file = options.word_vector
     theta_file = options.theta
     output_file = options.output
   
@@ -838,36 +877,46 @@ if __name__ == '__main__':
   
     print >> stderr, 'load RAE parameters...'
     theta = unpickle(theta_file)
-    rae = RecursiveAutoencoder.build(theta, embsize)
+    rae = RecursiveAutoencoder.build( theta, embsize )
+    word_vectors._vectors = rae.L
     
     total_cost = 0
-    total_instance_num = 0
-    total_internal_node_num = 0
   
     print '='*63
     print '%20s %20s %20s' % ('all', 'avg/node', 'internal node')
     print '-'*63
   
-    with Reader(phrases_file) as reader, Writer(output_file) as writer:
-        for phrase in reader:
-            instance = Instance.parse_from_str(phrase, word_vectors)
-            words_embedded = word_vectors[instance.words]
-            root_node, cost = rae.forward(words_embedded)
+    instances, _, total_internal_node_num = prepare_data( word_vectors, instances_file )
+    
+    total_instance_num = len( instances )
+
+    f = open( instances_file, 'r' )
+
+    with Writer(output_file) as writer:     
+        for i in xrange( len( instances ) ):
+            phrase = f.readline().strip().split(' ||| ')[0]
+            instance = instances[i]
+            word_embedded = word_vectors[instance.words]
+            root_node, rec_error = rae.forward( word_embedded, instance )
             vec = root_node.p.T[0] # convert n*1 vector to common vector
-            writer.write(' '.join([str(vec[i]) for i in range(vec.size)]))
+            
+            if i == 0:
+                ori_phrase = phrase
+                ori_vec = vec
+
+            writer.write( phrase )
+            writer.write(' ||| ')
+            writer.write( ori_phrase )
+            writer.write(' ||| ')
+            writer.write( str( Sim( vec, ori_vec ) ) )
             writer.write('\n')
-      
-            internal_node_num = len(instance.words)-1
-            if internal_node_num > 0:
-                print '%20.8f, %20.8f, %18d' % (cost, cost / internal_node_num, internal_node_num)
-            else:
-                print '%20.8f, %20.8f, %18d' % (cost, cost, 0)
-      
-            total_cost += cost
-            total_instance_num += 1
-            total_internal_node_num += internal_node_num
-  
+       
+            total_cost += rec_error
+
+    f.close()
+
     print '-'*63    
     print 'average reconstruction error per instance: %20.8f' % (total_cost / total_instance_num)
     print 'average reconstruction error per node:     %20.8f' % (total_cost / total_internal_node_num)
     print '='*63
+
